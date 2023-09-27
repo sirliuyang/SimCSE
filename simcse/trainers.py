@@ -12,6 +12,7 @@ from pathlib import Path
 import importlib.util
 from packaging import version
 from transformers import Trainer
+from transformers.integrations import init_deepspeed, hp_params
 from transformers.modeling_utils import PreTrainedModel
 from transformers.training_args import ParallelMode, TrainingArguments
 from transformers.utils import logging
@@ -62,9 +63,6 @@ if is_torch_tpu_available():
     import torch_xla.debug.metrics as met
     import torch_xla.distributed.parallel_loader as pl
 
-if is_apex_available():
-    from apex import amp
-
 if version.parse(torch.__version__) >= version.parse("1.6"):
     _is_native_amp_available = True
     from torch.cuda.amp import autocast
@@ -75,6 +73,7 @@ if is_datasets_available():
 from transformers.trainer import _model_unwrap
 from transformers.optimization import Adafactor, AdamW, get_scheduler
 import copy
+
 # Set path to SentEval
 PATH_TO_SENTEVAL = './SentEval'
 PATH_TO_DATA = './SentEval/data'
@@ -88,14 +87,15 @@ from filelock import FileLock
 
 logger = logging.get_logger(__name__)
 
+
 class CLTrainer(Trainer):
 
     def evaluate(
-        self,
-        eval_dataset: Optional[Dataset] = None,
-        ignore_keys: Optional[List[str]] = None,
-        metric_key_prefix: str = "eval",
-        eval_senteval_transfer: bool = False,
+            self,
+            eval_dataset: Optional[Dataset] = None,
+            ignore_keys: Optional[List[str]] = None,
+            metric_key_prefix: str = "eval",
+            eval_senteval_transfer: bool = False,
     ) -> Dict[str, float]:
 
         # SentEval prepare and batcher
@@ -119,7 +119,7 @@ class CLTrainer(Trainer):
         # Set params for SentEval (fastmode)
         params = {'task_path': PATH_TO_DATA, 'usepytorch': True, 'kfold': 5}
         params['classifier'] = {'nhid': 0, 'optim': 'rmsprop', 'batch_size': 128,
-                                            'tenacity': 3, 'epoch_size': 2}
+                                'tenacity': 3, 'epoch_size': 2}
 
         se = senteval.engine.SE(params, batcher, prepare)
         tasks = ['STSBenchmark', 'SICKRelatedness']
@@ -127,11 +127,12 @@ class CLTrainer(Trainer):
             tasks = ['STSBenchmark', 'SICKRelatedness', 'MR', 'CR', 'SUBJ', 'MPQA', 'SST2', 'TREC', 'MRPC']
         self.model.eval()
         results = se.eval(tasks)
-        
+
         stsb_spearman = results['STSBenchmark']['dev']['spearman'][0]
         sickr_spearman = results['SICKRelatedness']['dev']['spearman'][0]
 
-        metrics = {"eval_stsb_spearman": stsb_spearman, "eval_sickr_spearman": sickr_spearman, "eval_avg_sts": (stsb_spearman + sickr_spearman) / 2} 
+        metrics = {"eval_stsb_spearman": stsb_spearman, "eval_sickr_spearman": sickr_spearman,
+                   "eval_avg_sts": (stsb_spearman + sickr_spearman) / 2}
         if eval_senteval_transfer or self.args.eval_transfer:
             avg_transfer = 0
             for task in ['MR', 'CR', 'SUBJ', 'MPQA', 'SST2', 'TREC', 'MRPC']:
@@ -142,7 +143,7 @@ class CLTrainer(Trainer):
 
         self.log(metrics)
         return metrics
-        
+
     def _save_checkpoint(self, model, trial, metrics=None):
         """
         Compared to original implementation, we change the saving policy to
@@ -162,9 +163,9 @@ class CLTrainer(Trainer):
 
             operator = np.greater if self.args.greater_is_better else np.less
             if (
-                self.state.best_metric is None
-                or self.state.best_model_checkpoint is None
-                or operator(metric_value, self.state.best_metric)
+                    self.state.best_metric is None
+                    or self.state.best_model_checkpoint is None
+                    or operator(metric_value, self.state.best_metric)
             ):
                 output_dir = self.args.output_dir
                 self.state.best_metric = metric_value
@@ -234,7 +235,6 @@ class CLTrainer(Trainer):
                     torch.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
                 reissue_pt_warnings(caught_warnings)
 
-
             # Save the Trainer state
             if self.is_world_process_zero():
                 self.state.save_to_json(os.path.join(output_dir, "trainer_state.json"))
@@ -242,7 +242,7 @@ class CLTrainer(Trainer):
             # Maybe delete some older checkpoints.
             if self.is_world_process_zero():
                 self._rotate_checkpoints(use_mtime=True)
-    
+
     def train(self, model_path: Optional[str] = None, trial: Union["optuna.Trial", Dict[str, Any]] = None):
         """
         Main training entry point.
@@ -277,7 +277,7 @@ class CLTrainer(Trainer):
 
         # Keeping track whether we can can len() on the dataset or not
         train_dataset_is_sized = isinstance(self.train_dataset, collections.abc.Sized)
-        
+
         # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
 
@@ -320,18 +320,12 @@ class CLTrainer(Trainer):
 
         model = self.model_wrapped
 
-        # Mixed precision training with apex (torch < 1.6)
-        if self.use_apex:
-            model, self.optimizer = amp.initialize(model, self.optimizer, opt_level=self.args.fp16_opt_level)
-
         # Multi-gpu training (should be after apex fp16 initialization)
         if self.args.n_gpu > 1:
             model = torch.nn.DataParallel(model)
 
         # Distributed training (should be after apex fp16 initialization)
-        if self.sharded_dpp:
-            model = ShardedDDP(model, self.optimizer)
-        elif self.args.local_rank != -1:
+        if self.args.local_rank != -1:
             model = torch.nn.parallel.DistributedDataParallel(
                 model,
                 device_ids=[self.args.local_rank],
@@ -358,9 +352,9 @@ class CLTrainer(Trainer):
             total_train_batch_size = self.args.train_batch_size * xm.xrt_world_size()
         else:
             total_train_batch_size = (
-                self.args.train_batch_size
-                * self.args.gradient_accumulation_steps
-                * (torch.distributed.get_world_size() if self.args.local_rank != -1 else 1)
+                    self.args.train_batch_size
+                    * self.args.gradient_accumulation_steps
+                    * (torch.distributed.get_world_size() if self.args.local_rank != -1 else 1)
             )
 
         num_examples = (
@@ -465,9 +459,9 @@ class CLTrainer(Trainer):
                 self._total_flos += self.floating_point_ops(inputs)
 
                 if (step + 1) % self.args.gradient_accumulation_steps == 0 or (
-                    # last step in epoch but step is always smaller than gradient_accumulation_steps
-                    steps_in_epoch <= self.args.gradient_accumulation_steps
-                    and (step + 1) == steps_in_epoch
+                        # last step in epoch but step is always smaller than gradient_accumulation_steps
+                        steps_in_epoch <= self.args.gradient_accumulation_steps
+                        and (step + 1) == steps_in_epoch
                 ):
                     # Gradient clipping
                     if self.args.max_grad_norm is not None and self.args.max_grad_norm > 0 and not self.deepspeed:
@@ -480,12 +474,6 @@ class CLTrainer(Trainer):
                         if hasattr(self.optimizer, "clip_grad_norm"):
                             # Some optimizers (like the sharded optimizer) have a specific way to do gradient clipping
                             self.optimizer.clip_grad_norm(self.args.max_grad_norm)
-                        else:
-                            # Revert to normal clipping otherwise, handling Apex or full precision
-                            torch.nn.utils.clip_grad_norm_(
-                                amp.master_params(self.optimizer) if self.use_apex else model.parameters(),
-                                self.args.max_grad_norm,
-                            )
 
                     # Optimizer step
                     if is_torch_tpu_available():
@@ -495,7 +483,7 @@ class CLTrainer(Trainer):
                         self.scaler.update()
                     else:
                         self.optimizer.step()
-                    
+
                     self.lr_scheduler.step()
 
                     model.zero_grad()
