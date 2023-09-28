@@ -1,27 +1,13 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.distributed as dist
-
-import transformers
-from transformers import RobertaTokenizer
 from transformers.models.roberta.modeling_roberta import RobertaPreTrainedModel, RobertaModel, RobertaLMHead
 from transformers.models.bert.modeling_bert import BertPreTrainedModel, BertModel, BertLMPredictionHead
-from transformers.activations import gelu
-from transformers.file_utils import (
-    add_code_sample_docstrings,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    replace_return_docstrings,
-)
 from transformers.modeling_outputs import SequenceClassifierOutput, BaseModelOutputWithPoolingAndCrossAttentions
 
 
 class MLPLayer(nn.Module):
-    """
-    Head for getting sentence representations over RoBERTa/BERT's CLS representation.
-    """
-
+    # Head for getting sentence representations over RoBERTa/BERT's CLS representation.
     def __init__(self, config):
         super().__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
@@ -30,15 +16,11 @@ class MLPLayer(nn.Module):
     def forward(self, features, **kwargs):
         x = self.dense(features)
         x = self.activation(x)
-
         return x
 
 
 class Similarity(nn.Module):
-    """
-    Dot product or cosine similarity
-    """
-
+    # Dot product or cosine similarity
     def __init__(self, temp):
         super().__init__()
         self.temp = temp
