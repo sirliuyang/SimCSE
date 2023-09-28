@@ -30,6 +30,11 @@ class Similarity(nn.Module):
         return self.cos(x, y) / self.temp
 
 
+"""
+池化的目的, 就是
+"""
+
+
 class Pooler(nn.Module):
     """
     Parameter-free poolers to get the sentence embedding
@@ -71,10 +76,7 @@ class Pooler(nn.Module):
             raise NotImplementedError
 
 
-def cl_init(cls, config):
-    """
-    Contrastive learning class init function.
-    """
+def contrastive_learning_init(cls, config):
     cls.pooler_type = cls.model_args.pooler_type
     cls.pooler = Pooler(cls.model_args.pooler_type)
     if cls.model_args.pooler_type == "cls":
@@ -83,21 +85,21 @@ def cl_init(cls, config):
     cls.init_weights()
 
 
-def cl_forward(cls,
-               encoder,
-               input_ids=None,
-               attention_mask=None,
-               token_type_ids=None,
-               position_ids=None,
-               head_mask=None,
-               inputs_embeds=None,
-               labels=None,
-               output_attentions=None,
-               output_hidden_states=None,
-               return_dict=None,
-               mlm_input_ids=None,
-               mlm_labels=None,
-               ):
+def contrastive_learning_forward(cls,
+                                 encoder,
+                                 input_ids=None,
+                                 attention_mask=None,
+                                 token_type_ids=None,
+                                 position_ids=None,
+                                 head_mask=None,
+                                 inputs_embeds=None,
+                                 labels=None,
+                                 output_attentions=None,
+                                 output_hidden_states=None,
+                                 return_dict=None,
+                                 mlm_input_ids=None,
+                                 mlm_labels=None,
+                                 ):
     return_dict = return_dict if return_dict is not None else cls.config.use_return_dict
     ori_input_ids = input_ids
     batch_size = input_ids.size(0)
@@ -272,7 +274,7 @@ class BertForCL(BertPreTrainedModel):
         if self.model_args.do_mlm:
             self.lm_head = BertLMPredictionHead(config)
 
-        cl_init(self, config)
+        contrastive_learning_init(self, config)
 
     def forward(self,
                 input_ids=None,
@@ -303,20 +305,20 @@ class BertForCL(BertPreTrainedModel):
                                    return_dict=return_dict,
                                    )
         else:
-            return cl_forward(self, self.bert,
-                              input_ids=input_ids,
-                              attention_mask=attention_mask,
-                              token_type_ids=token_type_ids,
-                              position_ids=position_ids,
-                              head_mask=head_mask,
-                              inputs_embeds=inputs_embeds,
-                              labels=labels,
-                              output_attentions=output_attentions,
-                              output_hidden_states=output_hidden_states,
-                              return_dict=return_dict,
-                              mlm_input_ids=mlm_input_ids,
-                              mlm_labels=mlm_labels,
-                              )
+            return contrastive_learning_forward(self, self.bert,
+                                                input_ids=input_ids,
+                                                attention_mask=attention_mask,
+                                                token_type_ids=token_type_ids,
+                                                position_ids=position_ids,
+                                                head_mask=head_mask,
+                                                inputs_embeds=inputs_embeds,
+                                                labels=labels,
+                                                output_attentions=output_attentions,
+                                                output_hidden_states=output_hidden_states,
+                                                return_dict=return_dict,
+                                                mlm_input_ids=mlm_input_ids,
+                                                mlm_labels=mlm_labels,
+                                                )
 
 
 class RobertaForCL(RobertaPreTrainedModel):
@@ -330,7 +332,7 @@ class RobertaForCL(RobertaPreTrainedModel):
         if self.model_args.do_mlm:
             self.lm_head = RobertaLMHead(config)
 
-        cl_init(self, config)
+        contrastive_learning_init(self, config)
 
     def forward(self,
                 input_ids=None,
@@ -361,17 +363,17 @@ class RobertaForCL(RobertaPreTrainedModel):
                                    return_dict=return_dict,
                                    )
         else:
-            return cl_forward(self, self.roberta,
-                              input_ids=input_ids,
-                              attention_mask=attention_mask,
-                              token_type_ids=token_type_ids,
-                              position_ids=position_ids,
-                              head_mask=head_mask,
-                              inputs_embeds=inputs_embeds,
-                              labels=labels,
-                              output_attentions=output_attentions,
-                              output_hidden_states=output_hidden_states,
-                              return_dict=return_dict,
-                              mlm_input_ids=mlm_input_ids,
-                              mlm_labels=mlm_labels,
-                              )
+            return contrastive_learning_forward(self, self.roberta,
+                                                input_ids=input_ids,
+                                                attention_mask=attention_mask,
+                                                token_type_ids=token_type_ids,
+                                                position_ids=position_ids,
+                                                head_mask=head_mask,
+                                                inputs_embeds=inputs_embeds,
+                                                labels=labels,
+                                                output_attentions=output_attentions,
+                                                output_hidden_states=output_hidden_states,
+                                                return_dict=return_dict,
+                                                mlm_input_ids=mlm_input_ids,
+                                                mlm_labels=mlm_labels,
+                                                )
